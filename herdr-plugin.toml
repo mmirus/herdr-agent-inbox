@@ -1,0 +1,57 @@
+id = "mmirus.inbox"
+name = "Inbox"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Inbox view for the Agents sidebar: settle, snooze, and resurface agents"
+platforms = ["linux", "macos"]
+
+[[startup]]
+command = ["python3", "-I", "inbox.py", "restore"]
+
+[[actions]]
+id = "toggle"
+title = "Inbox: toggle inbox view"
+contexts = ["workspace"]
+command = ["python3", "-I", "inbox.py", "toggle"]
+
+[[actions]]
+id = "settle"
+title = "Inbox: settle focused agent"
+contexts = ["workspace"]
+command = ["python3", "-I", "inbox.py", "settle"]
+
+[[actions]]
+id = "unsettle"
+title = "Inbox: return focused agent to inbox"
+contexts = ["workspace"]
+command = ["python3", "-I", "inbox.py", "unsettle"]
+
+[[actions]]
+id = "snooze"
+title = "Inbox: snooze focused agent"
+contexts = ["workspace"]
+command = ["python3", "-I", "inbox.py", "snooze-picker"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "-I", "inbox.py", "on-status"]
+
+[[events]]
+on = "pane.closed"
+command = ["python3", "-I", "inbox.py", "on-closed"]
+
+[[events]]
+on = "tab.closed"
+command = ["python3", "-I", "inbox.py", "on-closed"]
+
+[[events]]
+on = "workspace.closed"
+command = ["python3", "-I", "inbox.py", "on-closed"]
+
+[[panes]]
+id = "snooze-picker"
+title = "Snooze"
+placement = "popup"
+width = 34
+height = 11
+command = ["python3", "-I", "inbox.py", "snooze-picker-ui"]
