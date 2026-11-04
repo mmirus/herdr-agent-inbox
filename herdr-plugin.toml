@@ -41,6 +41,10 @@ on = "workspace.renamed"
 command = ["python3", "-I", "inbox.py", "seed"]
 
 [[events]]
+on = "pane.focused"
+command = ["python3", "-I", "inbox.py", "on-focus"]
+
+[[events]]
 on = "pane.closed"
 command = ["python3", "-I", "inbox.py", "on-closed"]
 
@@ -57,5 +61,5 @@ id = "snooze-picker"
 title = "Snooze"
 placement = "popup"
 width = 34
-height = 11
+height = 12
 command = ["python3", "-I", "inbox.py", "snooze-picker-ui"]

@@ -6,7 +6,7 @@ A herdr plugin that adds an inbox view to the Agents sidebar, inspired by t3code
 |---|---|
 | `mmirus.inbox.toggle` | Switch the Agents sidebar between the inbox view and the stock view. |
 | `mmirus.inbox.settle` | Hide the focused agent from the inbox until it finishes a turn or asks for input. |
-| `mmirus.inbox.snooze` | Open a popup to hide the focused agent for 15 minutes to 24 hours, or until it asks for input. |
+| `mmirus.inbox.snooze` | Open a popup to hide the focused agent for 15 minutes up to a week, or until it asks for input. |
 | `mmirus.inbox.unsettle` | Return the focused agent to the inbox. |
 
 Agents are also settled automatically when the pull request for their checkout's branch has merged on GitHub. Each merged pull request settles an agent once, so unsettling it afterwards keeps it in the inbox. Agents that are working or waiting for input are not settled, and neither are agents that started working after the merge, so a follow-up you ask for after merging stays visible.
@@ -61,11 +61,11 @@ rows = [
 
 ## Behavior and limits
 
-- Inbox state is a pane metadata token, `inbox`, set to `settled` or `snoozed`. A snooze is a token TTL, so herdr's 24-hour `ttl_ms` limit caps snooze length.
+- Inbox state is a pane metadata token, `inbox`, set to `settled` or `snoozed`. A snooze ends when the token's TTL expires. herdr caps `ttl_ms` at 24 hours, so a longer snooze starts without a TTL and gets one from the first hook that runs within 24 hours of waking: an agent status change or a pane focus change. If no hook runs in that window, the agent wakes at the next one.
 - herdr discards metadata tokens and the active agent view when its server restarts. The plugin keeps both in `$HERDR_PLUGIN_STATE_DIR/state.json`, and its startup hook reapplies them, skipping expired snoozes and closed panes.
 - herdr allows one agent view per server. Another plugin calling `agent.view.set` replaces the inbox view, and `state.json` will still record it as active until the next toggle.
 - The view filters only the Agents panel. The Spaces list is unchanged, and panes without a detected agent never appear in the Agents panel.
 - `ws_busy`, `ws_ready`, and `inbox_rank` are refreshed on every agent status change, and seeded from `agent.list` at startup, when the inbox view is turned on, and when a workspace is renamed.
-- herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes and at server startup, at most once every 2 minutes. When no agent changes status, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately.
+- herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes, when pane focus changes, and at server startup, at most once every 2 minutes. When neither happens, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately.
 - The merge check queries `gh pr list --head <branch> --state merged` for each agent whose checkout is on a branch other than the repository's default branch.
 - `python3 inbox.py status` prints the stored state.

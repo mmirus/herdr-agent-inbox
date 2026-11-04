@@ -14,6 +14,10 @@ the inbox view's first sort key.
 Herdr runs no long-lived plugin process, so the check that settles agents whose
 branch's pull request has merged runs from event hooks and the startup hook,
 at most once per MERGE_CHECK_INTERVAL.
+
+A snooze ends when its `inbox` token's TTL expires. Herdr caps TTLs at 24 hours,
+so a longer snooze starts without a TTL; hooks call sweep_snoozes, which gives it
+a TTL once it is within 24 hours of waking, or wakes it if no hook ran in time.
 """
 
 import fcntl
@@ -26,7 +30,7 @@ import termios
 import time
 import tty
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "mmirus.inbox")
 SOURCE = f"plugin:{PLUGIN_ID}"
@@ -38,12 +42,21 @@ STATE_FILE = os.path.join(STATE_DIR, "state.json")
 MAX_TTL_MS = 86_400_000  # herdr's ttl_ms ceiling
 MERGE_CHECK_INTERVAL = 120  # seconds
 
+def at_nine(day):
+    return day.replace(hour=9, minute=0, second=0, microsecond=0)
+
+
+def next_monday(now):
+    return at_nine(now + timedelta(days=7 - now.weekday()))
+
+
 SNOOZE_CHOICES = [
-    ("1", "15 minutes", 15 * 60),
-    ("2", "1 hour", 60 * 60),
-    ("3", "3 hours", 3 * 60 * 60),
-    ("4", "8 hours", 8 * 60 * 60),
-    ("5", "24 hours", 24 * 60 * 60),
+    ("1", "15 minutes", lambda now: now + timedelta(minutes=15)),
+    ("2", "1 hour", lambda now: now + timedelta(hours=1)),
+    ("3", "3 hours", lambda now: now + timedelta(hours=3)),
+    ("4", "Tomorrow 9:00", lambda now: at_nine(now + timedelta(days=1))),
+    ("5", "Monday 9:00", next_monday),
+    ("6", "1 week", lambda now: now + timedelta(weeks=1)),
 ]
 
 INBOX_VIEW = {
@@ -113,7 +126,7 @@ def state():
 def set_tokens(pane_id, tokens, ttl_ms=None):
     params = {"pane_id": pane_id, "source": SOURCE, "tokens": tokens}
     if ttl_ms:
-        params["ttl_ms"] = min(int(ttl_ms), MAX_TTL_MS)
+        params["ttl_ms"] = max(1, min(int(ttl_ms), MAX_TTL_MS))
     request("pane.report_metadata", params)
 
 
@@ -197,10 +210,36 @@ def cmd_unsettle():
         s["panes"].pop(pane, None)
 
 
-def snooze(pane, seconds):
+def apply_snooze_token(pane, until):
+    """Sets the snoozed token, with a TTL when herdr's cap allows. Returns whether it has one."""
+    remaining_ms = (until - time.time()) * 1000
+    if remaining_ms <= MAX_TTL_MS:
+        set_token(pane, "snoozed", ttl_ms=max(remaining_ms, 1))
+        return True
+    set_token(pane, "snoozed")
+    return False
+
+
+def snooze(pane, until):
     with state() as s:
-        set_token(pane, "snoozed", ttl_ms=seconds * 1000)
-        s["panes"][pane] = {"state": "snoozed", "until": time.time() + seconds}
+        timed = apply_snooze_token(pane, until)
+        s["panes"][pane] = {"state": "snoozed", "until": until, "timed": timed}
+
+
+def sweep_snoozes():
+    now = time.time()
+    with state() as s:
+        for pane, entry in list(s["panes"].items()):
+            if entry["state"] != "snoozed":
+                continue
+            if entry["until"] <= now:
+                clear_token(pane)
+                s["panes"].pop(pane)
+            elif not entry.get("timed") and (entry["until"] - now) * 1000 <= MAX_TTL_MS:
+                try:
+                    entry["timed"] = apply_snooze_token(pane, entry["until"])
+                except HerdrError:
+                    pass  # pane already gone
 
 
 def cmd_snooze_picker():
@@ -235,9 +274,9 @@ def cmd_snooze_picker_ui():
         key = read_key()
         if key in ("q", "\x1b", "\x03"):
             return
-        for choice_key, label, seconds in SNOOZE_CHOICES:
+        for choice_key, label, until in SNOOZE_CHOICES:
             if key == choice_key:
-                snooze(pane, seconds)
+                snooze(pane, until(datetime.now()).timestamp())
                 return
 
 
@@ -247,6 +286,12 @@ def event_data():
 
 def cmd_on_status():
     resurface()
+    sweep_snoozes()
+    check_merges()
+
+
+def cmd_on_focus():
+    sweep_snoozes()
     check_merges()
 
 
@@ -388,11 +433,12 @@ def cmd_restore():
     with state() as s:
         prune(s, live)
         for pane, entry in list(s["panes"].items()):
-            if entry["until"] and entry["until"] <= now:
+            if entry["state"] == "settled":
+                set_token(pane, "settled")
+            elif entry["until"] <= now:
                 s["panes"].pop(pane)
-                continue
-            ttl_ms = (entry["until"] - now) * 1000 if entry["until"] else None
-            set_token(pane, entry["state"], ttl_ms=ttl_ms)
+            else:
+                entry["timed"] = apply_snooze_token(pane, entry["until"])
         if s["view_active"]:
             request("agent.view.set", INBOX_VIEW)
     check_merges(force=True)
@@ -412,6 +458,7 @@ COMMANDS = {
     "snooze-picker": cmd_snooze_picker,
     "snooze-picker-ui": cmd_snooze_picker_ui,
     "on-status": cmd_on_status,
+    "on-focus": cmd_on_focus,
     "on-closed": cmd_on_closed,
     "restore": cmd_restore,
     "status": cmd_status,
@@ -420,7 +467,7 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "snooze":
-        snooze(target_pane(), int(sys.argv[2]))
+        snooze(target_pane(), time.time() + int(sys.argv[2]))
         return
     if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:
         raise SystemExit(f"usage: inbox.py {{{'|'.join(COMMANDS)}}} | snooze SECONDS")
