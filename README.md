@@ -1,6 +1,6 @@
-# herdr inbox
+# herdr agent inbox
 
-A herdr plugin that adds an inbox view to the Agents sidebar, inspired by t3code's inbox. Toggling the view hides settled and snoozed agents; toggling it again restores herdr's stock Agents list.
+A herdr plugin that adds an inbox view to the Agents sidebar, inspired by the inbox in [T3 Code](https://github.com/pingdotgg/t3code). Toggling the view hides settled and snoozed agents; toggling it again restores herdr's stock Agents list.
 
 | Action | Effect |
 |---|---|
@@ -18,7 +18,7 @@ The inbox view puts working agents last, then sorts agents needing attention fir
 Requires herdr 0.9.5+ and `python3` on `PATH`. Settling on merge also requires `git` and an authenticated `gh` on the herdr server's `PATH`.
 
 ```sh
-herdr plugin link /path/to/herdr-t3code-inbox
+herdr plugin install mmirus/herdr-agent-inbox
 ```
 
 Add keybindings to `config.toml`, then run `herdr server reload-config`:
@@ -69,3 +69,7 @@ rows = [
 - herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes, when pane focus changes, and at server startup, at most once every 2 minutes. When neither happens, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately.
 - The merge check queries `gh pr list --head <branch> --state merged` for each agent whose checkout is on a branch other than the repository's default branch.
 - `python3 inbox.py status` prints the stored state.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
