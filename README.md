@@ -9,11 +9,13 @@ A herdr plugin that adds an inbox view to the Agents sidebar, inspired by t3code
 | `mmirus.inbox.snooze` | Open a popup to hide the focused agent for 15 minutes to 24 hours, or until it asks for input. |
 | `mmirus.inbox.unsettle` | Return the focused agent to the inbox. |
 
+Agents are also settled automatically when the pull request for their checkout's branch has merged on GitHub. Each merged pull request settles an agent once, so unsettling it afterwards keeps it in the inbox. Agents that are working or waiting for input are not settled, and neither are agents that started working after the merge, so a follow-up you ask for after merging stays visible.
+
 The inbox view puts working agents last, then sorts agents needing attention first, then by most recent state change.
 
 ## Install
 
-Requires herdr 0.9.5+ and `python3` on `PATH`.
+Requires herdr 0.9.5+ and `python3` on `PATH`. Settling on merge also requires `git` and an authenticated `gh` on the herdr server's `PATH`.
 
 ```sh
 herdr plugin link /path/to/herdr-t3code-inbox
@@ -64,4 +66,6 @@ rows = [
 - herdr allows one agent view per server. Another plugin calling `agent.view.set` replaces the inbox view, and `state.json` will still record it as active until the next toggle.
 - The view filters only the Agents panel. The Spaces list is unchanged, and panes without a detected agent never appear in the Agents panel.
 - `ws_busy`, `ws_ready`, and `inbox_rank` are refreshed on every agent status change, and seeded from `agent.list` at startup, when the inbox view is turned on, and when a workspace is renamed.
+- herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes and at server startup, at most once every 2 minutes. When no agent changes status, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately.
+- The merge check queries `gh pr list --head <branch> --state merged` for each agent whose checkout is on a branch other than the repository's default branch.
 - `python3 inbox.py status` prints the stored state.

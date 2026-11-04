@@ -10,17 +10,23 @@ workspace name is reported twice over: `ws_ready` while the agent is not
 working and `ws_busy` while it is. A row renders both, styles `$ws_busy` muted,
 and whichever is unset disappears. `inbox_rank` (`0` not working, `1` working) is
 the inbox view's first sort key.
+
+Herdr runs no long-lived plugin process, so the check that settles agents whose
+branch's pull request has merged runs from event hooks and the startup hook,
+at most once per MERGE_CHECK_INTERVAL.
 """
 
 import fcntl
 import json
 import os
 import socket
+import subprocess
 import sys
 import termios
 import time
 import tty
 from contextlib import contextmanager
+from datetime import datetime
 
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "mmirus.inbox")
 SOURCE = f"plugin:{PLUGIN_ID}"
@@ -30,6 +36,7 @@ STATE_DIR = os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser(
 )
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 MAX_TTL_MS = 86_400_000  # herdr's ttl_ms ceiling
+MERGE_CHECK_INTERVAL = 120  # seconds
 
 SNOOZE_CHOICES = [
     ("1", "15 minutes", 15 * 60),
@@ -93,6 +100,9 @@ def state():
             data = {}
         data.setdefault("view_active", False)
         data.setdefault("panes", {})
+        data.setdefault("merge_settled", {})
+        data.setdefault("work_started", {})
+        data.setdefault("default_branches", {})
         yield data
         tmp = STATE_FILE + ".tmp"
         with open(tmp, "w") as f:
@@ -236,6 +246,11 @@ def event_data():
 
 
 def cmd_on_status():
+    resurface()
+    check_merges()
+
+
+def resurface():
     """Updates the activity tokens and resurfaces agents that need attention again.
 
     A settled agent returns when it finishes a turn (`done`, or `idle` if the
@@ -247,6 +262,9 @@ def cmd_on_status():
     status = data.get("agent_status")
     if pane:
         report_activity(pane, status, workspace_labels().get(data.get("workspace_id")))
+    if pane and status == "working":
+        with state() as s:
+            s["work_started"][pane] = time.time()
     if not pane or status not in ("idle", "done", "blocked"):
         return
     with state() as s:
@@ -262,12 +280,105 @@ def live_panes():
     return {p["pane_id"] for p in (request("pane.list", {}) or {}).get("panes", [])}
 
 
+def prune(s, live):
+    for key in ("panes", "merge_settled", "work_started"):
+        for pane in list(s[key]):
+            if pane not in live:
+                s[key].pop(pane)
+
+
 def cmd_on_closed():
     live = live_panes()
     with state() as s:
-        for pane in list(s["panes"]):
-            if pane not in live:
-                s["panes"].pop(pane)
+        prune(s, live)
+
+
+def run(cmd, cwd):
+    try:
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def default_branch(top, cache):
+    if top not in cache:
+        ref = run(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], top)
+        if ref:
+            cache[top] = ref.split("/", 1)[-1]
+        else:
+            cache[top] = run(
+                ["gh", "repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+                top,
+            )
+    return cache[top]
+
+
+def merged_pr(top, branch):
+    """Returns (url, merged_at epoch seconds) for the branch's latest merged PR, or None."""
+    out = run(
+        ["gh", "pr", "list", "--head", branch, "--state", "merged", "--limit", "1",
+         "--json", "url,mergedAt", "--jq", '.[0] | select(.) | "\\(.url) \\(.mergedAt)"'],
+        top,
+    )
+    if not out:
+        return None
+    url, merged_at = out.split(" ", 1)
+    return url, datetime.fromisoformat(merged_at.replace("Z", "+00:00")).timestamp()
+
+
+def check_merges(force=False):
+    """Settles agents whose checkout's branch has a merged pull request.
+
+    Agents that are working or blocked are left alone, as are agents that
+    started working after the merge: herdr does not report sent messages, so the
+    agent starting work stands in for the user asking for more after merging.
+    Each merged pull request settles a pane once, so unsettling an agent after
+    its merge keeps it in the inbox. GitHub is queried outside the state lock because the queries are slow
+    and every other hook needs that lock; a separate lock keeps checks from
+    overlapping.
+    """
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(os.path.join(STATE_DIR, "merges.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        with state() as s:
+            now = time.time()
+            if not force and now - s.get("last_merge_check", 0) < MERGE_CHECK_INTERVAL:
+                return
+            s["last_merge_check"] = now
+            skip = set(s["panes"])
+            already = dict(s["merge_settled"])
+            work_started = dict(s["work_started"])
+            defaults = dict(s["default_branches"])
+
+        found = {}
+        by_branch = {}
+        for agent in (request("agent.list", {}) or {}).get("agents", []):
+            pane = agent["pane_id"]
+            if pane in skip or agent.get("agent_status") in ("working", "blocked"):
+                continue
+            cwd = agent.get("foreground_cwd") or agent.get("cwd")
+            top = cwd and run(["git", "rev-parse", "--show-toplevel"], cwd)
+            branch = top and run(["git", "symbolic-ref", "--short", "HEAD"], top)
+            if not branch or branch == default_branch(top, defaults):
+                continue
+            if (top, branch) not in by_branch:
+                by_branch[(top, branch)] = merged_pr(top, branch)
+            pr = by_branch[(top, branch)]
+            if pr and already.get(pane) != pr[0] and pr[1] > work_started.get(pane, 0):
+                found[pane] = pr[0]
+
+        with state() as s:
+            s["default_branches"].update(defaults)
+            for pane, url in found.items():
+                if pane in s["panes"]:
+                    continue
+                set_token(pane, "settled")
+                s["panes"][pane] = {"state": "settled", "until": None}
+                s["merge_settled"][pane] = url
 
 
 def cmd_restore():
@@ -275,14 +386,16 @@ def cmd_restore():
     live = live_panes()
     now = time.time()
     with state() as s:
+        prune(s, live)
         for pane, entry in list(s["panes"].items()):
-            if pane not in live or (entry["until"] and entry["until"] <= now):
+            if entry["until"] and entry["until"] <= now:
                 s["panes"].pop(pane)
                 continue
             ttl_ms = (entry["until"] - now) * 1000 if entry["until"] else None
             set_token(pane, entry["state"], ttl_ms=ttl_ms)
         if s["view_active"]:
             request("agent.view.set", INBOX_VIEW)
+    check_merges(force=True)
 
 
 def cmd_status():
@@ -292,6 +405,7 @@ def cmd_status():
 
 COMMANDS = {
     "seed": seed_activity,
+    "check-merges": lambda: check_merges(force=True),
     "toggle": cmd_toggle,
     "settle": cmd_settle,
     "unsettle": cmd_unsettle,
