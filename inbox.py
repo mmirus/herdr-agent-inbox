@@ -5,10 +5,10 @@ Inbox membership lives in a pane metadata token named `inbox` (`settled` or
 metadata tokens and agent views when its server restarts, so the same facts are
 kept in STATE_DIR/state.json and reapplied by the `restore` startup hook.
 
-Sidebar rows can only style a token by that token's own value, so the agent's
-name is reported twice over: `name_ready` while the agent is not working and
-`name_busy` while it is. A row renders both, styles `$name_busy` muted, and
-whichever is unset disappears. `inbox_rank` (`0` not working, `1` working) is
+Sidebar rows can only style a token by that token's own value, so each agent's
+workspace name is reported twice over: `ws_ready` while the agent is not
+working and `ws_busy` while it is. A row renders both, styles `$ws_busy` muted,
+and whichever is unset disappears. `inbox_rank` (`0` not working, `1` working) is
 the inbox view's first sort key.
 """
 
@@ -111,15 +111,20 @@ def set_token(pane_id, value, ttl_ms=None):
     set_tokens(pane_id, {TOKEN: value}, ttl_ms)
 
 
-def report_activity(pane_id, status, name):
+def workspace_labels():
+    workspaces = (request("workspace.list", {}) or {}).get("workspaces", [])
+    return {w["workspace_id"]: w.get("label") for w in workspaces}
+
+
+def report_activity(pane_id, status, workspace):
     working = status == "working"
     try:
         set_tokens(
             pane_id,
             {
                 "inbox_rank": "1" if working else "0",
-                "name_busy": name if working else None,
-                "name_ready": None if working else name,
+                "ws_busy": workspace if working else None,
+                "ws_ready": None if working else workspace,
             },
         )
     except HerdrError:
@@ -127,10 +132,9 @@ def report_activity(pane_id, status, name):
 
 
 def seed_activity():
+    labels = workspace_labels()
     for agent in (request("agent.list", {}) or {}).get("agents", []):
-        report_activity(
-            agent["pane_id"], agent.get("agent_status"), agent.get("display_agent") or agent.get("agent")
-        )
+        report_activity(agent["pane_id"], agent.get("agent_status"), labels.get(agent.get("workspace_id")))
 
 
 def clear_token(pane_id):
@@ -242,7 +246,7 @@ def cmd_on_status():
     pane = data.get("pane_id")
     status = data.get("agent_status")
     if pane:
-        report_activity(pane, status, data.get("display_agent") or data.get("agent"))
+        report_activity(pane, status, workspace_labels().get(data.get("workspace_id")))
     if not pane or status not in ("idle", "done", "blocked"):
         return
     with state() as s:
@@ -287,6 +291,7 @@ def cmd_status():
 
 
 COMMANDS = {
+    "seed": seed_activity,
     "toggle": cmd_toggle,
     "settle": cmd_settle,
     "unsettle": cmd_unsettle,

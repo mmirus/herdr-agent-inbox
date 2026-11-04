@@ -37,6 +37,10 @@ on = "pane.agent_status_changed"
 command = ["python3", "-I", "inbox.py", "on-status"]
 
 [[events]]
+on = "workspace.renamed"
+command = ["python3", "-I", "inbox.py", "seed"]
+
+[[events]]
 on = "pane.closed"
 command = ["python3", "-I", "inbox.py", "on-closed"]
 

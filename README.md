@@ -47,13 +47,13 @@ command = "mmirus.inbox.unsettle"
 description = "unsettle agent"
 ```
 
-Optionally, mute working agents' names and label settled and snoozed agents. Sidebar rows style a token only by its own value, so the plugin reports each agent's name as `$name_busy` while it is working and as `$name_ready` otherwise; the unset token renders nothing. These rows replace the built-in `agent` token, so agent names disappear if the plugin is disabled.
+Optionally, mute working agents' workspace names and label settled and snoozed agents. Sidebar rows style a token only by its own value, so the plugin reports each agent's workspace name as `$ws_busy` while it is working and as `$ws_ready` otherwise; the unset token renders nothing. These rows replace the built-in `workspace` token, so workspace names disappear from Agent rows if the plugin is disabled, and `$ws_ready` does not turn bold on the focused row as the built-in token does.
 
 ```toml
 [ui.sidebar.agents]
 rows = [
-  ["state_icon", "machine", "workspace", "tab"],
-  ["$name_ready", { token = "$name_busy", dim = true }, { token = "$inbox", dim = true }],
+  ["state_icon", "machine", "$ws_ready", { token = "$ws_busy", dim = true }, "tab"],
+  ["agent", { token = "$inbox", dim = true }],
 ]
 ```
 
@@ -63,5 +63,5 @@ rows = [
 - herdr discards metadata tokens and the active agent view when its server restarts. The plugin keeps both in `$HERDR_PLUGIN_STATE_DIR/state.json`, and its startup hook reapplies them, skipping expired snoozes and closed panes.
 - herdr allows one agent view per server. Another plugin calling `agent.view.set` replaces the inbox view, and `state.json` will still record it as active until the next toggle.
 - The view filters only the Agents panel. The Spaces list is unchanged, and panes without a detected agent never appear in the Agents panel.
-- `name_busy`, `name_ready`, and `inbox_rank` are refreshed on every agent status change and seeded from `agent.list` at startup and when the inbox view is turned on.
+- `ws_busy`, `ws_ready`, and `inbox_rank` are refreshed on every agent status change, and seeded from `agent.list` at startup, when the inbox view is turned on, and when a workspace is renamed.
 - `python3 inbox.py status` prints the stored state.
