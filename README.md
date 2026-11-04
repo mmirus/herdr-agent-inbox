@@ -4,10 +4,10 @@ A herdr plugin that adds an inbox view to the Agents sidebar, inspired by t3code
 
 | Action | Effect |
 |---|---|
-| `mmirus.inbox.toggle` | Switch the Agents sidebar between the inbox view and the stock view. |
-| `mmirus.inbox.settle` | Hide the focused agent from the inbox until it finishes a turn or asks for input. |
-| `mmirus.inbox.snooze` | Open a popup to hide the focused agent for 15 minutes up to a week, or until it asks for input. |
-| `mmirus.inbox.unsettle` | Return the focused agent to the inbox. |
+| `agent-inbox.toggle` | Switch the Agents sidebar between the inbox view and the stock view. |
+| `agent-inbox.settle` | Hide the focused agent from the inbox until it finishes a turn or asks for input. |
+| `agent-inbox.snooze` | Open a popup to hide the focused agent for 15 minutes up to a week, or until it asks for input. |
+| `agent-inbox.unsettle` | Return the focused agent to the inbox. |
 
 Agents are also settled automatically when the pull request for their checkout's branch has merged on GitHub. Each merged pull request settles an agent once, so unsettling it afterwards keeps it in the inbox. Agents that are working or waiting for input are not settled, and neither are agents that started working after the merge, so a follow-up you ask for after merging stays visible.
 
@@ -27,25 +27,25 @@ Add keybindings to `config.toml`, then run `herdr server reload-config`:
 [[keys.command]]
 key = "prefix+i"
 type = "plugin_action"
-command = "mmirus.inbox.toggle"
+command = "agent-inbox.toggle"
 description = "toggle inbox"
 
 [[keys.command]]
 key = "prefix+shift+e"
 type = "plugin_action"
-command = "mmirus.inbox.settle"
+command = "agent-inbox.settle"
 description = "settle agent"
 
 [[keys.command]]
 key = "prefix+shift+z"
 type = "plugin_action"
-command = "mmirus.inbox.snooze"
+command = "agent-inbox.snooze"
 description = "snooze agent"
 
 [[keys.command]]
 key = "prefix+shift+u"
 type = "plugin_action"
-command = "mmirus.inbox.unsettle"
+command = "agent-inbox.unsettle"
 description = "unsettle agent"
 ```
 

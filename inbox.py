@@ -32,7 +32,7 @@ import tty
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
-PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "mmirus.inbox")
+PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "agent-inbox")
 SOURCE = f"plugin:{PLUGIN_ID}"
 TOKEN = "inbox"
 STATE_DIR = os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser(
