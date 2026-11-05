@@ -4,6 +4,9 @@ Inbox membership lives in a pane metadata token named `inbox` (`settled` or
 `snoozed`); the inbox view hides agents carrying either value. Herdr drops
 metadata tokens and agent views when its server restarts, so the same facts are
 kept in STATE_DIR/state.json and reapplied by the `restore` startup hook.
+Every herdr session runs the plugin with the same HERDR_PLUGIN_STATE_DIR, while
+views, tokens, and pane IDs belong to one server, so STATE_DIR is a
+subdirectory per server socket.
 
 Sidebar rows can only style a token by that token's own value, so each agent's
 workspace name is reported twice over: `ws_ready` while the agent is not
@@ -21,6 +24,7 @@ a TTL once it is within 24 hours of waking, or wakes it if no hook ran in time.
 """
 
 import fcntl
+import hashlib
 import json
 import os
 import socket
@@ -35,8 +39,11 @@ from datetime import datetime, timedelta
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "agent-inbox")
 SOURCE = f"plugin:{PLUGIN_ID}"
 TOKEN = "inbox"
-STATE_DIR = os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser(
-    "~/.local/state/herdr-inbox"
+SOCKET_PATH = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
+STATE_DIR = os.path.join(
+    os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser("~/.local/state/herdr-inbox"),
+    "servers",
+    hashlib.sha256(os.path.realpath(SOCKET_PATH).encode()).hexdigest()[:16],
 )
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 MAX_TTL_MS = 86_400_000  # herdr's ttl_ms ceiling
@@ -79,9 +86,8 @@ class HerdrError(RuntimeError):
 
 
 def request(method, params):
-    path = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.connect(path)
+        sock.connect(SOCKET_PATH)
         payload = {"id": f"{PLUGIN_ID}:{method}", "method": method, "params": params}
         sock.sendall((json.dumps(payload) + "\n").encode())
         buf = b""
@@ -111,6 +117,7 @@ def state():
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
+        data["socket"] = SOCKET_PATH
         data.setdefault("view_active", False)
         data.setdefault("panes", {})
         data.setdefault("merge_settled", {})

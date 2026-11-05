@@ -62,13 +62,13 @@ rows = [
 ## Behavior and limits
 
 - Inbox state is a pane metadata token, `inbox`, set to `settled` or `snoozed`. A snooze ends when the token's TTL expires. herdr caps `ttl_ms` at 24 hours, so a longer snooze starts without a TTL and gets one from the first hook that runs within 24 hours of waking: an agent status change or a pane focus change. If no hook runs in that window, the agent wakes at the next one.
-- herdr discards metadata tokens and the active agent view when its server restarts. The plugin keeps both in `$HERDR_PLUGIN_STATE_DIR/state.json`, and its startup hook reapplies them, skipping expired snoozes and closed panes.
+- herdr discards metadata tokens and the active agent view when its server restarts. The plugin keeps both in `$HERDR_PLUGIN_STATE_DIR/servers/<id>/state.json`, one file per herdr server socket, because every herdr session shares the plugin's state directory while views, tokens, and pane IDs belong to one server. Its startup hook reapplies them, skipping expired snoozes and closed panes.
 - herdr allows one agent view per server. Another plugin calling `agent.view.set` replaces the inbox view, and `state.json` will still record it as active until the next toggle.
 - The view filters only the Agents panel. The Spaces list is unchanged, and panes without a detected agent never appear in the Agents panel.
 - `ws_busy`, `ws_ready`, and `inbox_rank` are refreshed on every agent status change, and seeded from `agent.list` at startup, when the inbox view is turned on, and when a workspace is renamed.
-- herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes, when pane focus changes, and at server startup, at most once every 2 minutes. When neither happens, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately.
+- herdr runs no long-lived plugin process, so the merge check runs when an agent's status changes, when pane focus changes, and at server startup, at most once every 2 minutes. When neither happens, a merge is noticed late. `python3 inbox.py check-merges` runs the check immediately; run it, like `status`, with `HERDR_PLUGIN_STATE_DIR` set to the plugin's state directory and `HERDR_SOCKET_PATH` set to the server's socket.
 - The merge check queries `gh pr list --head <branch> --state merged` for each agent whose checkout is on a branch other than the repository's default branch.
-- `python3 inbox.py status` prints the stored state.
+- `python3 inbox.py status` prints the stored state for the server at `HERDR_SOCKET_PATH`.
 
 ## License
 
