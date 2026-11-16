@@ -64,9 +64,9 @@ rows = [
 
 When a Full Claude Agent turn ends with native background tasks still running, OpenCode reports the session idle, and so does herdr. The `agent-inbox-opencode` directory is an OpenCode 2.x TUI plugin that reads the session's tasks from Full Claude Agent and reports them to herdr. While non-ambient tasks run in the pane's session, it sets the pane token `bg_tasks` to their count and labels the `idle` and `done` states "N Claude tasks running".
 
-To install it, add the directory's absolute path to `plugins` in `~/.config/opencode/opencode.jsonc`, then restart OpenCode. herdr keeps GitHub-installed plugins under `~/.config/herdr/plugins/github/`.
+To install it, add the directory's absolute path to `plugins` in `~/.config/opencode/cli.json`, OpenCode's TUI config. `opencode.jsonc` configures OpenCode's server, which skips TUI-only plugins like this one. herdr keeps GitHub-installed plugins under `~/.config/herdr/plugins/github/`. `opencode plugin list` shows the directory once OpenCode has picked it up.
 
-```jsonc
+```json
 "plugins": ["/path/to/agent-inbox/agent-inbox-opencode"]
 ```
 
