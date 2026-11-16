@@ -32,6 +32,12 @@ title = "Inbox: snooze focused agent"
 contexts = ["workspace"]
 command = ["python3", "-I", "inbox.py", "snooze-picker"]
 
+[[actions]]
+id = "refresh"
+title = "Inbox: refresh working state"
+contexts = ["workspace"]
+command = ["python3", "-I", "inbox.py", "refresh"]
+
 [[events]]
 on = "pane.agent_status_changed"
 command = ["python3", "-I", "inbox.py", "on-status"]

@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", "agent-inbox")
 SOURCE = f"plugin:{PLUGIN_ID}"
 TOKEN = "inbox"
+BG_TOKEN = "bg_tasks"
 SOCKET_PATH = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
 STATE_DIR = os.path.join(
     os.environ.get("HERDR_PLUGIN_STATE_DIR") or os.path.expanduser("~/.local/state/herdr-inbox"),
@@ -146,8 +147,20 @@ def workspace_labels():
     return {w["workspace_id"]: w.get("label") for w in workspaces}
 
 
-def report_activity(pane_id, status, workspace):
-    working = status == "working"
+def is_working(status, tokens):
+    """Whether an agent counts as working: herdr reports it working, or it is
+    idle with background tasks that the OpenCode bridge reports in `bg_tasks`."""
+    return status == "working" or (status in ("idle", "done") and bool((tokens or {}).get(BG_TOKEN)))
+
+
+def pane_tokens(pane_id):
+    try:
+        return ((request("pane.get", {"pane_id": pane_id}) or {}).get("pane") or {}).get("tokens")
+    except HerdrError:
+        return None  # pane already gone
+
+
+def report_activity(pane_id, working, workspace):
     try:
         set_tokens(
             pane_id,
@@ -164,7 +177,11 @@ def report_activity(pane_id, status, workspace):
 def seed_activity():
     labels = workspace_labels()
     for agent in (request("agent.list", {}) or {}).get("agents", []):
-        report_activity(agent["pane_id"], agent.get("agent_status"), labels.get(agent.get("workspace_id")))
+        report_activity(
+            agent["pane_id"],
+            is_working(agent.get("agent_status"), agent.get("tokens")),
+            labels.get(agent.get("workspace_id")),
+        )
 
 
 def clear_token(pane_id):
@@ -313,7 +330,7 @@ def resurface():
     pane = data.get("pane_id")
     status = data.get("agent_status")
     if pane:
-        report_activity(pane, status, workspace_labels().get(data.get("workspace_id")))
+        report_activity(pane, is_working(status, pane_tokens(pane)), workspace_labels().get(data.get("workspace_id")))
     if pane and status == "working":
         with state() as s:
             s["work_started"][pane] = time.time()
@@ -410,7 +427,8 @@ def check_merges(force=False):
         by_branch = {}
         for agent in (request("agent.list", {}) or {}).get("agents", []):
             pane = agent["pane_id"]
-            if pane in skip or agent.get("agent_status") in ("working", "blocked"):
+            status = agent.get("agent_status")
+            if pane in skip or status == "blocked" or is_working(status, agent.get("tokens")):
                 continue
             cwd = agent.get("foreground_cwd") or agent.get("cwd")
             top = cwd and run(["git", "rev-parse", "--show-toplevel"], cwd)
@@ -458,6 +476,7 @@ def cmd_status():
 
 COMMANDS = {
     "seed": seed_activity,
+    "refresh": seed_activity,
     "check-merges": lambda: check_merges(force=True),
     "toggle": cmd_toggle,
     "settle": cmd_settle,
